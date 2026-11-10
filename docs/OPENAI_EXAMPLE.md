@@ -55,8 +55,10 @@ A successful run exports four spans:
 
 Trace IDs, call IDs, timing, model identifiers, and token counts vary.
 The same `OTEL_*` settings and PackDB Cloud walkthrough from the main README
-apply. PackDB's `packdb.genai.v2` profile removes `gen_ai.response.id`, so the
-response ID is visible in console export but is omitted from the Cloud view.
+apply. The console export includes `gen_ai.response.id`. With PackDB’s default
+policy, profiles v1 and v2 remove the ID, while v3 and later retain it on the
+source span. Check `genai_operations.profile_version` for the profile applied
+to your row, then open its span to inspect the ID.
 Query `operation = 'execute_tool'` for the two attempts or include
 `operation = 'chat'` to inspect the real model invocation.
 

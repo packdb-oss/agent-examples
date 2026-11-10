@@ -112,7 +112,8 @@ trace even though the overall agent run succeeded.
 The manual spans use OpenTelemetry semantic conventions `v1.43.0` and GenAI
 conventions at
 [`2e994c6`](https://github.com/open-telemetry/semantic-conventions-genai/tree/2e994c6d59a93bb4fc1752c5378eedb9b8e14d6b).
-These attributes are also recognized by PackDB's `packdb.genai.v2` profile.
+In PackDB, each operation row records the GenAI profile applied at ingestion
+in `genai_operations.profile_version`.
 Each backend controls how it stores and displays the spans.
 
 See [contributing](CONTRIBUTING.md) for the review process and
