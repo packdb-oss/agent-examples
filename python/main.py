@@ -8,13 +8,17 @@ from opentelemetry import trace
 from opentelemetry.instrumentation.auto_instrumentation import initialize
 
 
-def main() -> None:
+def configure_telemetry() -> None:
     os.environ.setdefault("OTEL_TRACES_EXPORTER", "console")
     os.environ.setdefault("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
     os.environ.setdefault("OTEL_METRICS_EXPORTER", "none")
     os.environ.setdefault("OTEL_LOGS_EXPORTER", "none")
     os.environ.setdefault("OTEL_SERVICE_NAME", "docs-agent-python")
     initialize(swallow_exceptions=False)
+
+
+def main() -> None:
+    configure_telemetry()
     try:
         trace_id = run_agent()
     finally:
