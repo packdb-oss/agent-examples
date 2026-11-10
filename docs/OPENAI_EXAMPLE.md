@@ -55,7 +55,9 @@ A successful run exports four spans:
 
 Trace IDs, call IDs, timing, model identifiers, and token counts vary.
 The same `OTEL_*` settings and PackDB Cloud walkthrough from the main README
-apply. Query `operation = 'execute_tool'` for the two attempts or include
+apply. PackDB's `packdb.genai.v2` profile removes `gen_ai.response.id`, so the
+response ID is visible in console export but is omitted from the Cloud view.
+Query `operation = 'execute_tool'` for the two attempts or include
 `operation = 'chat'` to inspect the real model invocation.
 
 The default Python and TypeScript examples remain deterministic. CI tests the

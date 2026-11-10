@@ -3,6 +3,7 @@
 
 import json
 import os
+from http.client import HTTPException
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -90,7 +91,14 @@ def request_tool() -> tuple[str, str]:
                     span.set_attribute(f"gen_ai.usage.{name}", value)
             span.set_status(StatusCode.OK)
             return call["name"], call["call_id"]
-        except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
+        except (
+            OSError,
+            HTTPException,
+            ValueError,
+            KeyError,
+            TypeError,
+            AttributeError,
+        ) as error:
             if isinstance(error, HTTPError):
                 error_type = str(error.code)
                 detail = f"HTTP {error.code}"
@@ -98,7 +106,7 @@ def request_tool() -> tuple[str, str]:
                 isinstance(error, URLError) and isinstance(error.reason, TimeoutError)
             ):
                 error_type = detail = "timeout"
-            elif isinstance(error, OSError):
+            elif isinstance(error, (OSError, HTTPException)):
                 error_type = detail = "connection_error"
             else:
                 error_type = detail = "invalid_response"

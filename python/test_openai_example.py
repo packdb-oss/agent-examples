@@ -7,6 +7,7 @@ import json
 import os
 import unittest
 from contextlib import redirect_stdout
+from http.client import BadStatusLine, IncompleteRead
 from unittest.mock import patch
 from urllib.error import HTTPError, URLError
 
@@ -139,6 +140,11 @@ class OpenAIExampleTest(unittest.TestCase):
             [
                 (TimeoutError("private timeout detail"), "timeout", "timeout"),
                 (
+                    BadStatusLine("private response detail"),
+                    "connection_error",
+                    "connection_error",
+                ),
+                (
                     URLError(TimeoutError("private timeout detail")),
                     "timeout",
                     "timeout",
@@ -163,6 +169,22 @@ class OpenAIExampleTest(unittest.TestCase):
                 self.assertEqual(span.status.status_code, StatusCode.ERROR)
                 self.assertEqual(span.attributes["error.type"], error_type)
                 self.assertFalse(span.events)
+
+    def test_interrupted_response_body_is_a_redacted_connection_error(self):
+        response = io.BytesIO()
+        with (
+            patch.object(openai_example, "urlopen", return_value=response),
+            patch.object(
+                response, "read", side_effect=IncompleteRead(b"private body", 10)
+            ),
+            self.assertRaisesRegex(RuntimeError, "connection_error") as caught,
+        ):
+            openai_example.request_tool()
+        self.assertNotIn("private", str(caught.exception))
+        (span,) = self.exporter.get_finished_spans()
+        self.assertEqual(span.status.status_code, StatusCode.ERROR)
+        self.assertEqual(span.attributes["error.type"], "connection_error")
+        self.assertFalse(span.events)
 
     def test_optional_token_counts_preserve_zero_and_omit_missing_values(self):
         for usage in (
