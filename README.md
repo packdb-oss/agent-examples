@@ -43,6 +43,9 @@ The first child has status ERROR and `error.type=timeout`. The second child
 and the `invoke_agent docs_agent` parent have status OK. Neither example
 records prompts, responses, tool arguments or tool results.
 
+For a real provider invocation, see the [OpenAI recipe](docs/OPENAI_EXAMPLE.md).
+It uses a provider key supplied through the environment.
+
 ## Send the trace to a backend
 
 Set these standard OpenTelemetry variables in the process environment, then run
