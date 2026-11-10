@@ -1,0 +1,86 @@
+name: oss-ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+  merge_group:
+  workflow_dispatch:
+  workflow_call:
+  schedule:
+    - cron: '23 7 * * 1'
+permissions:
+  contents: read
+jobs:
+  checks:
+    if: github.event_name != 'schedule' || github.event.repository.private == false || vars.OSS_PRIVATE_SCHEDULES_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22.18.0'
+      - run: python -m pip install --require-hashes -r python/requirements.txt
+      - run: npm --prefix typescript ci --ignore-scripts
+      - run: python scripts/check_source_headers.py
+      - run: python -m pip install ruff==0.17.4
+      - run: ruff check python tests scripts/check_dependency_licenses.py
+      - run: ruff format --check python tests scripts/check_dependency_licenses.py
+      - run: npm --prefix typescript run format:check
+      - run: npm --prefix typescript run check
+      - run: python -m unittest discover -s python
+      - run: npm --prefix typescript test
+
+  coverage:
+    if: github.event_name != 'schedule' || github.event.repository.private == false || vars.OSS_PRIVATE_SCHEDULES_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22.18.0'
+      - run: python -m pip install --require-hashes -r python/requirements.txt
+      - run: npm --prefix typescript ci --ignore-scripts
+      - run: python -m pip install coverage==7.17.2
+      - name: Require 80 percent line coverage for each example file
+        run: |
+          coverage run --source=python python/main.py
+          for file in python/*.py; do
+            [[ "$file" == */test_* ]] && continue
+            coverage report --include="$file" --fail-under=80
+          done
+          for file in typescript/*.ts; do
+            [[ "$file" == *.test.ts ]] && continue
+            node --test --experimental-test-coverage --test-coverage-include="$file" --test-coverage-lines=80 typescript/main.ts > coverage.txt
+            cat coverage.txt
+            grep -F "${file##*/} " coverage.txt
+          done
+
+  compatibility:
+    if: github.event_name != 'schedule' || github.event.repository.private == false || vars.OSS_PRIVATE_SCHEDULES_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22.18.0'
+      - run: python -m pip install --require-hashes -r python/requirements.txt
+      - run: npm --prefix typescript ci --ignore-scripts
+      - run: python -m unittest discover -s tests

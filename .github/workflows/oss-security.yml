@@ -1,0 +1,35 @@
+name: oss-security
+on:
+  pull_request:
+  push:
+    branches: [main]
+  merge_group:
+  workflow_dispatch:
+  workflow_call:
+  schedule:
+    - cron: '23 7 * * 1'
+permissions:
+  contents: read
+jobs:
+  audit:
+    if: github.event_name != 'schedule' || github.event.repository.private == false || vars.OSS_PRIVATE_SCHEDULES_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22.18.0'
+      - run: python -m pip install --require-hashes -r python/requirements.txt
+      - run: npm --prefix typescript ci --ignore-scripts
+      - run: python scripts/check_dependency_licenses.py
+      - run: npm --prefix typescript audit
+      - run: pipx run --spec pip-audit==2.9.0 pip-audit --no-deps --disable-pip -r python/requirements.txt
+      - name: Scan Git history for secrets
+        run: go run github.com/zricethezav/gitleaks/v8@v8.30.1 git --redact .

@@ -1,0 +1,25 @@
+{
+  "name": "agent-examples",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "scripts": {
+    "start": "node main.ts",
+    "check": "tsc --noEmit",
+    "test": "node --test agent.test.ts",
+    "format:check": "prettier --check \"*.ts\""
+  },
+  "dependencies": {
+    "@opentelemetry/api": "1.9.1",
+    "@opentelemetry/sdk-node": "0.220.0"
+  },
+  "devDependencies": {
+    "@opentelemetry/sdk-trace-node": "2.9.0",
+    "@types/node": "22.15.30",
+    "prettier": "3.6.2",
+    "typescript": "5.9.3"
+  },
+  "license": "Apache-2.0"
+}
