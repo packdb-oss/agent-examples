@@ -1,6 +1,7 @@
 # Copyright 2026 PackDB Contributors
 # Licensed under the Apache License, Version 2.0
 
+from collections.abc import Callable
 from uuid import uuid4
 
 from opentelemetry import trace
@@ -17,7 +18,7 @@ def lookup_docs(attempt: int) -> str:
     return "Use the trace ID to find both attempts."
 
 
-def run_agent() -> str:
+def run_agent(model: Callable[[], tuple[str, str]] = stub_model) -> str:
     tracer = trace.get_tracer("agent_examples.tool_retry")
     with tracer.start_as_current_span(
         "invoke_agent docs_agent",
@@ -26,7 +27,7 @@ def run_agent() -> str:
             "gen_ai.agent.name": "docs_agent",
         },
     ) as parent:
-        tool_name, call_id = stub_model()
+        tool_name, call_id = model()
         for attempt in (1, 2):
             with tracer.start_as_current_span(
                 f"execute_tool {tool_name}",
