@@ -3,6 +3,7 @@
 
 import json
 import os
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from agent import run_agent
@@ -37,6 +38,7 @@ def request_tool() -> tuple[str, str]:
                         "parameters": {
                             "type": "object",
                             "properties": {},
+                            "required": [],
                             "additionalProperties": False,
                         },
                         "strict": True,
@@ -71,17 +73,38 @@ def request_tool() -> tuple[str, str]:
             ):
                 raise ValueError("Unexpected tool call")
             span.set_attribute("gen_ai.response.model", result["model"])
-            for key, value in (result.get("usage") or {}).items():
-                if key in ("input_tokens", "output_tokens"):
-                    span.set_attribute(f"gen_ai.usage.{key}", value)
+            span.set_attribute("gen_ai.response.id", result["id"])
+            usage = result.get("usage") or {}
+            token_counts = {
+                "input_tokens": usage.get("input_tokens"),
+                "output_tokens": usage.get("output_tokens"),
+                "cached_input_tokens": (usage.get("input_tokens_details") or {}).get(
+                    "cached_tokens"
+                ),
+                "reasoning_tokens": (usage.get("output_tokens_details") or {}).get(
+                    "reasoning_tokens"
+                ),
+            }
+            for name, value in token_counts.items():
+                if value is not None:
+                    span.set_attribute(f"gen_ai.usage.{name}", value)
             span.set_status(StatusCode.OK)
             return call["name"], call["call_id"]
-        except (OSError, ValueError, KeyError, TypeError) as error:
-            span.set_attribute("error.type", type(error).__name__)
+        except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
+            if isinstance(error, HTTPError):
+                error_type = str(error.code)
+                detail = f"HTTP {error.code}"
+            elif isinstance(error, TimeoutError) or (
+                isinstance(error, URLError) and isinstance(error.reason, TimeoutError)
+            ):
+                error_type = detail = "timeout"
+            elif isinstance(error, OSError):
+                error_type = detail = "connection_error"
+            else:
+                error_type = detail = "invalid_response"
+            span.set_attribute("error.type", error_type)
             span.set_status(StatusCode.ERROR)
-            raise RuntimeError(
-                "OpenAI model call failed. Check credentials, model access, and connectivity."
-            ) from None
+            raise RuntimeError(f"OpenAI model call failed ({detail}).") from None
 
 
 def main() -> None:

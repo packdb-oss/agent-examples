@@ -8,7 +8,7 @@ import os
 import unittest
 from contextlib import redirect_stdout
 from unittest.mock import patch
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 
 import openai_example
 from opentelemetry.sdk.trace import TracerProvider
@@ -17,6 +17,7 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanE
 from opentelemetry.trace import StatusCode
 
 RESPONSE = {
+    "id": "response-123",
     "model": "test-model",
     "output": [
         {
@@ -26,7 +27,12 @@ RESPONSE = {
             "arguments": "{}",
         }
     ],
-    "usage": {"input_tokens": 23, "output_tokens": 7},
+    "usage": {
+        "input_tokens": 23,
+        "output_tokens": 7,
+        "input_tokens_details": {"cached_tokens": 6},
+        "output_tokens_details": {"reasoning_tokens": 3},
+    },
 }
 
 
@@ -66,6 +72,7 @@ class OpenAIExampleTest(unittest.TestCase):
             self.assertFalse(body["parallel_tool_calls"])
             self.assertEqual(body["max_output_tokens"], 256)
             self.assertEqual(body["model"], "test-model")
+            self.assertEqual(body["tools"][0]["parameters"]["required"], [])
             self.assertEqual(
                 body["tool_choice"], {"type": "function", "name": "lookup_docs"}
             )
@@ -88,7 +95,10 @@ class OpenAIExampleTest(unittest.TestCase):
         self.assertEqual(model.status.status_code, StatusCode.OK)
         self.assertEqual(model.attributes["gen_ai.usage.input_tokens"], 23)
         self.assertEqual(model.attributes["gen_ai.usage.output_tokens"], 7)
+        self.assertEqual(model.attributes["gen_ai.usage.cached_input_tokens"], 6)
+        self.assertEqual(model.attributes["gen_ai.usage.reasoning_tokens"], 3)
         self.assertEqual(model.attributes["gen_ai.response.model"], "test-model")
+        self.assertEqual(model.attributes["gen_ai.response.id"], "response-123")
         self.assertEqual(parent.status.status_code, StatusCode.OK)
         for child in (model, failed, succeeded):
             self.assertEqual(child.parent, parent.context)
@@ -106,29 +116,84 @@ class OpenAIExampleTest(unittest.TestCase):
                 "gen_ai.provider.name",
                 "gen_ai.request.model",
                 "gen_ai.response.model",
+                "gen_ai.response.id",
                 "gen_ai.usage.input_tokens",
                 "gen_ai.usage.output_tokens",
+                "gen_ai.usage.cached_input_tokens",
+                "gen_ai.usage.reasoning_tokens",
             },
         )
 
-    def test_provider_error_does_not_capture_response_content(self):
-        error = HTTPError(
-            "https://api.openai.com/v1/responses",
-            401,
-            "private-response-content",
-            {},
-            io.BytesIO(b"private body"),
+    def test_provider_errors_report_safe_language_neutral_causes(self):
+        cases = []
+        for code in (401, 404, 429):
+            error = HTTPError(
+                "https://api.openai.com/v1/responses",
+                code,
+                "private-response-content",
+                {},
+                io.BytesIO(b"private body"),
+            )
+            cases.append((error, str(code), f"HTTP {code}"))
+        cases.extend(
+            [
+                (TimeoutError("private timeout detail"), "timeout", "timeout"),
+                (
+                    URLError(TimeoutError("private timeout detail")),
+                    "timeout",
+                    "timeout",
+                ),
+                (
+                    URLError("private transport detail"),
+                    "connection_error",
+                    "connection_error",
+                ),
+            ]
         )
-        with (
-            patch.object(openai_example, "urlopen", side_effect=error),
-            self.assertRaisesRegex(RuntimeError, "OpenAI model call failed") as caught,
+        for error, error_type, detail in cases:
+            with self.subTest(error_type=error_type):
+                self.exporter.clear()
+                with (
+                    patch.object(openai_example, "urlopen", side_effect=error),
+                    self.assertRaisesRegex(RuntimeError, detail) as caught,
+                ):
+                    openai_example.request_tool()
+                self.assertNotIn("private", str(caught.exception))
+                (span,) = self.exporter.get_finished_spans()
+                self.assertEqual(span.status.status_code, StatusCode.ERROR)
+                self.assertEqual(span.attributes["error.type"], error_type)
+                self.assertFalse(span.events)
+
+    def test_optional_token_counts_preserve_zero_and_omit_missing_values(self):
+        for usage in (
+            None,
+            {
+                "input_tokens_details": {"cached_tokens": 0},
+                "output_tokens_details": {"reasoning_tokens": 0},
+            },
         ):
-            openai_example.request_tool()
-        self.assertNotIn("private", str(caught.exception))
-        (span,) = self.exporter.get_finished_spans()
-        self.assertEqual(span.status.status_code, StatusCode.ERROR)
-        self.assertEqual(span.attributes["error.type"], "HTTPError")
-        self.assertFalse(span.events)
+            with self.subTest(usage=usage):
+                self.exporter.clear()
+                result = copy.deepcopy(RESPONSE)
+                result["usage"] = usage
+                with patch.object(
+                    openai_example,
+                    "urlopen",
+                    return_value=io.BytesIO(json.dumps(result).encode()),
+                ):
+                    openai_example.request_tool()
+                (span,) = self.exporter.get_finished_spans()
+                if usage is None:
+                    self.assertFalse(
+                        any(key.startswith("gen_ai.usage.") for key in span.attributes)
+                    )
+                else:
+                    self.assertEqual(
+                        span.attributes["gen_ai.usage.cached_input_tokens"], 0
+                    )
+                    self.assertEqual(
+                        span.attributes["gen_ai.usage.reasoning_tokens"], 0
+                    )
 
     def test_rejects_unexpected_tool_calls(self):
         for output in (
@@ -143,6 +208,7 @@ class OpenAIExampleTest(unittest.TestCase):
             ],
         ):
             with self.subTest(output=output):
+                self.exporter.clear()
                 result = copy.deepcopy(RESPONSE)
                 result["output"] = output
                 with (
@@ -151,9 +217,11 @@ class OpenAIExampleTest(unittest.TestCase):
                         "urlopen",
                         return_value=io.BytesIO(json.dumps(result).encode()),
                     ),
-                    self.assertRaises(RuntimeError),
+                    self.assertRaisesRegex(RuntimeError, "invalid_response"),
                 ):
                     openai_example.request_tool()
+                (span,) = self.exporter.get_finished_spans()
+                self.assertEqual(span.attributes["error.type"], "invalid_response")
 
     def test_requires_credentials_and_model(self):
         with (

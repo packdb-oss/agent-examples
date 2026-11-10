@@ -5,6 +5,11 @@ forces a call to `lookup_docs`, then the example runs that local tool. Its first
 execution raises a synthetic timeout and its retry succeeds. The provider's
 call ID links both attempts. The recipe ends after the tool succeeds.
 
+OpenAI's Responses API provides the tool-call ID and token-usage metadata this
+recipe traces. The standard-library HTTP call keeps the request and attribute
+mapping visible in one file and adds no dependencies. The `chat` span is created
+manually so the example also shows how to instrument a provider call directly.
+
 ## Run
 
 Install the Python dependencies using the main README. Have your secret manager
@@ -33,13 +38,18 @@ with a 256-output-token limit and a 60-second network timeout.
 The request uses `store=false`. Prompt text, tool arguments, provider response
 content, and credentials are omitted from the spans. Provider transport and
 response-validation failures mark the model span as ERROR and stop the run.
+HTTP failures use their status code as `error.type` and include it in the error
+message. Other failures use `timeout`, `connection_error`, or `invalid_response`.
+For example, HTTP 401 indicates an authentication failure, HTTP 404 can indicate
+an unavailable model, and HTTP 429 indicates a rate or quota limit.
 
 ## Inspect
 
 A successful run exports four spans:
 
 - An OK `invoke_agent docs_agent` parent.
-- An OK `chat <model>` child with the actual response model and token usage.
+- An OK `chat <model>` child with the response ID, actual model, input and output
+  token counts, and cached-input and reasoning counts when returned by OpenAI.
 - An ERROR `execute_tool lookup_docs` child with `error.type=timeout`.
 - An OK `execute_tool lookup_docs` child with the same provider call ID.
 
