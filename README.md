@@ -43,6 +43,10 @@ The first child has status ERROR and `error.type=timeout`. The second child
 and the `invoke_agent docs_agent` parent have status OK. Neither example
 records prompts, responses, tool arguments or tool results.
 
+This example retries a read-only lookup. For a write, a timeout alone does not
+tell the caller whether the change took effect. See the separate experiment:
+[The tool call timed out. Did the write happen?](https://packdb.io/docs/agent-tool-timeout).
+
 For a real provider invocation, see the [OpenAI recipe](docs/OPENAI_EXAMPLE.md).
 It uses a provider key supplied through the environment.
 
